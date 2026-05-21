@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables (NEVER commit credentials)
+.env
+
+# Data (no trackear en git)
+data/raw/
+data/processed/
+
+# Figures (opcionales, puedes cambiar esto)
+# figures/
+
+# macOS
+.DS_Store
+
+# pyenv
+.python-version
+
+#other
+go_venv.txt
