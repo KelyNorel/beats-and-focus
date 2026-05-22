@@ -9,7 +9,7 @@ Downloads tracks and audio features for three groups using track search:
   C — Popular: trending / top / viral tracks (control 2)
 
 - Spotify API: track search
-- Musicae.io via RapidAPI: audio features (BPM, energy, valence, etc.)
+- Musicae.io via RapidAPI: audio features (BPM, energy, valence, etc.) + popularity
 
 Saves raw data to data/raw/tracks.csv
 """
@@ -83,6 +83,15 @@ def get_spotify_client():
     return spotipy.Spotify(auth_manager=auth)
 
 
+# ── RapidAPI headers ──────────────────────────────────────────────────────────
+def get_rapidapi_headers():
+    return {
+        "x-rapidapi-key":  os.getenv("RAPIDAPI_KEY"),
+        "x-rapidapi-host": os.getenv("RAPIDAPI_HOST"),
+        "Content-Type":    "application/json",
+    }
+
+
 # ── Track search via Spotify ──────────────────────────────────────────────────
 def search_tracks(sp, query, limit=10):
     tracks = []
@@ -97,7 +106,6 @@ def search_tracks(sp, query, limit=10):
                 "track_id":    track["id"],
                 "track_name":  track["name"],
                 "artists":     artists,
-                "popularity":  track.get("popularity"),
                 "duration_ms": track.get("duration_ms"),
                 "explicit":    track.get("explicit"),
             })
@@ -106,20 +114,14 @@ def search_tracks(sp, query, limit=10):
     return tracks
 
 
-# ── Audio features via Musicae.io (RapidAPI) ──────────────────────────────────
+# ── Audio features via Musicae.io ─────────────────────────────────────────────
 def get_audio_features(track_ids):
-    rapidapi_key  = os.getenv("RAPIDAPI_KEY")
-    rapidapi_host = os.getenv("RAPIDAPI_HOST")
-
-    headers = {
-        "x-rapidapi-key":  rapidapi_key,
-        "x-rapidapi-host": rapidapi_host,
-        "Content-Type":    "application/json",
-    }
-
+    headers = get_rapidapi_headers()
+    host = os.getenv("RAPIDAPI_HOST")
     features = []
+
     for track_id in track_ids:
-        url = f"https://{rapidapi_host}/v1/audio-features/{track_id}"
+        url = f"https://{host}/v1/audio-features/{track_id}"
         try:
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
@@ -145,6 +147,32 @@ def get_audio_features(track_ids):
 
     return features
 
+
+# ── Popularity via Musicae.io /v1/tracks/{id} ─────────────────────────────────
+def get_popularity(track_ids):
+    headers = get_rapidapi_headers()
+    host = os.getenv("RAPIDAPI_HOST")
+    popularity_data = []
+
+    for track_id in track_ids:
+        url = f"https://{host}/v1/tracks/{track_id}"
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            t = response.json()
+            if t is None:
+                continue
+            popularity_data.append({
+                "track_id":   t.get("id"),
+                "popularity": t.get("popularity"),
+            })
+        except Exception as e:
+            log.warning(f"  Popularity error for track {track_id}: {e}")
+        time.sleep(0.3)
+
+    return popularity_data
+
+
 # ── Group ingestion ───────────────────────────────────────────────────────────
 def ingest_group(sp, group_label, queries):
     log.info(f"\n{'='*50}")
@@ -165,18 +193,29 @@ def ingest_group(sp, group_label, queries):
 
     tracks_df = pd.DataFrame(all_tracks).drop_duplicates(subset="track_id")
     log.info(f"  Unique tracks after dedup: {len(tracks_df)}")
+    track_ids = tracks_df["track_id"].tolist()
 
+    # Audio features
     log.info(f"  Fetching audio features via Musicae.io...")
-    features = get_audio_features(tracks_df["track_id"].tolist())
-
+    features = get_audio_features(track_ids)
     if not features:
         log.warning(f"  No audio features returned for group {group_label}.")
         return pd.DataFrame()
-
     features_df = pd.DataFrame(features)
+
+    # Popularity
+    log.info(f"  Fetching popularity via Musicae.io...")
+    popularity = get_popularity(track_ids)
+    if not popularity:
+        log.warning(f"  No popularity returned for group {group_label}.")
+        return pd.DataFrame()
+    popularity_df = pd.DataFrame(popularity)
+
+    # Merge all
     merged = tracks_df.merge(features_df, on="track_id", how="inner")
+    merged = merged.merge(popularity_df, on="track_id", how="left")
     merged["group"] = group_label
-    log.info(f"  Tracks with audio features: {len(merged)}")
+    log.info(f"  Tracks with full data: {len(merged)}")
 
     return merged
 
@@ -208,6 +247,8 @@ def main():
     log.info(final_df.groupby("group")["track_id"].count().to_string())
     log.info(f"\nBPM summary by group:")
     log.info(final_df.groupby("group")["tempo"].describe()[["mean", "std", "min", "max"]].to_string())
+    log.info(f"\nPopularity summary by group:")
+    log.info(final_df.groupby("group")["popularity"].describe()[["mean", "std", "min", "max"]].to_string())
 
 
 if __name__ == "__main__":
