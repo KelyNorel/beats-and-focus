@@ -1,15 +1,15 @@
 """
 ingest.py
 ---------
-Spotify API ingestion pipeline for beats-and-focus.
+Spotify data ingestion pipeline for beats-and-focus.
 
-Downloads tracks and audio features for three groups using track search:
+Uses Musicae.io via RapidAPI exclusively:
+  - /v1/search      → track IDs + popularity
+  - /v1/audio-features/{id} → BPM, energy, valence, etc.
+
+Two groups only (A/B test):
   A — Focus:   tracks associated with focus / deep work / ADHD music (treatment)
-  B — Context: tracks associated with relax / chill / mood (control 1)
-  C — Popular: trending / top / viral tracks (control 2)
-
-- Spotify API: track search
-- Musicae.io via RapidAPI: audio features (BPM, energy, valence, etc.) + popularity
+  B — Context: tracks associated with relax / chill / mood (control)
 
 Saves raw data to data/raw/tracks.csv
 """
@@ -18,10 +18,8 @@ import os
 import time
 import logging
 import requests
-import spotipy
 import pandas as pd
 from dotenv import load_dotenv
-from spotipy.oauth2 import SpotifyClientCredentials
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -34,7 +32,8 @@ log = logging.getLogger(__name__)
 # ── Config ────────────────────────────────────────────────────────────────────
 load_dotenv()
 
-TRACKS_PER_QUERY = 10
+TRACKS_PER_QUERY = 50   # Musicae.io supports up to 50
+TARGET_PER_GROUP = 1200
 OUTPUT_DIR = "data/raw"
 
 SEARCH_QUERIES = {
@@ -46,6 +45,24 @@ SEARCH_QUERIES = {
         "brain focus music",
         "flow state work music",
         "productivity music beats",
+        "focus instrumental beats",
+        "work concentration music",
+        "study beats instrumental",
+        "deep concentration music",
+        "focus binaural beats",
+        "work music no lyrics",
+        "study lofi focus",
+        "cognitive focus music",
+        "focus ambient music",
+        "deep work instrumental",
+        "study music concentration",
+        "focus electronic music",
+        "work productivity beats",
+        "attention focus music",
+        "study music 2025",
+        "focus music for work",
+        "instrumental study music",
+        "deep focus ambient",
     ],
     "B_context": [
         "chill relax music",
@@ -55,36 +72,30 @@ SEARCH_QUERIES = {
         "coffee shop background music",
         "r&b chill vibes",
         "mellow instrumental music",
-    ],
-    "C_popular": [
-        "top hits 2025",
-        "viral music 2025",
-        "pop hits chart",
-        "trending music now",
-        "billboard hot songs",
-        "most streamed songs",
-        "mainstream hits 2025",
+        "relaxing evening music",
+        "calm background music",
+        "indie folk relax",
+        "soft acoustic songs",
+        "chill jazz music",
+        "ambient relax music",
+        "evening chill playlist",
+        "slow relaxing music",
+        "peaceful background music",
+        "soft piano relax",
+        "chill bedroom music",
+        "relaxing indie music",
+        "mellow r&b music",
+        "calm acoustic music",
+        "background chill music",
+        "relax evening songs",
+        "soft background instrumental",
+        "chill vibes music 2025",
     ],
 }
 
 
-# ── Spotify client ────────────────────────────────────────────────────────────
-def get_spotify_client():
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-
-    if not client_id or not client_secret:
-        raise ValueError("Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in .env")
-
-    auth = SpotifyClientCredentials(
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-    return spotipy.Spotify(auth_manager=auth)
-
-
 # ── RapidAPI headers ──────────────────────────────────────────────────────────
-def get_rapidapi_headers():
+def get_headers():
     return {
         "x-rapidapi-key":  os.getenv("RAPIDAPI_KEY"),
         "x-rapidapi-host": os.getenv("RAPIDAPI_HOST"),
@@ -92,12 +103,16 @@ def get_rapidapi_headers():
     }
 
 
-# ── Track search via Spotify ──────────────────────────────────────────────────
-def search_tracks(sp, query, limit=10):
+# ── Search tracks via Musicae.io ──────────────────────────────────────────────
+def search_tracks(query, limit=50):
+    host = os.getenv("RAPIDAPI_HOST")
+    url = f"https://{host}/v1/search"
+    params = {"q": query, "type": "track", "limit": str(limit)}
     tracks = []
     try:
-        results = sp.search(q=query, type="track", limit=limit)
-        items = results.get("tracks", {}).get("items", [])
+        response = requests.get(url, headers=get_headers(), params=params, timeout=10)
+        response.raise_for_status()
+        items = response.json().get("tracks", {}).get("items", [])
         for track in items:
             if track is None or track.get("id") is None:
                 continue
@@ -106,6 +121,7 @@ def search_tracks(sp, query, limit=10):
                 "track_id":    track["id"],
                 "track_name":  track["name"],
                 "artists":     artists,
+                "popularity":  track.get("popularity"),
                 "duration_ms": track.get("duration_ms"),
                 "explicit":    track.get("explicit"),
             })
@@ -115,105 +131,70 @@ def search_tracks(sp, query, limit=10):
 
 
 # ── Audio features via Musicae.io ─────────────────────────────────────────────
-def get_audio_features(track_ids):
-    headers = get_rapidapi_headers()
+def get_audio_features(track_id):
     host = os.getenv("RAPIDAPI_HOST")
-    features = []
-
-    for track_id in track_ids:
-        url = f"https://{host}/v1/audio-features/{track_id}"
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            f = response.json()
-            if f is None:
-                continue
-            features.append({
-                "track_id":         f.get("id"),
-                "tempo":            f.get("tempo"),
-                "energy":           f.get("energy"),
-                "valence":          f.get("valence"),
-                "danceability":     f.get("danceability"),
-                "acousticness":     f.get("acousticness"),
-                "instrumentalness": f.get("instrumentalness"),
-                "speechiness":      f.get("speechiness"),
-                "loudness":         f.get("loudness"),
-                "mode":             f.get("mode"),
-                "time_signature":   f.get("time_signature"),
-            })
-        except Exception as e:
-            log.warning(f"  Audio features error for track {track_id}: {e}")
-        time.sleep(0.3)
-
-    return features
-
-
-# ── Popularity via Musicae.io /v1/tracks/{id} ─────────────────────────────────
-def get_popularity(track_ids):
-    headers = get_rapidapi_headers()
-    host = os.getenv("RAPIDAPI_HOST")
-    popularity_data = []
-
-    for track_id in track_ids:
-        url = f"https://{host}/v1/tracks/{track_id}"
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            t = response.json()
-            if t is None:
-                continue
-            popularity_data.append({
-                "track_id":   t.get("id"),
-                "popularity": t.get("popularity"),
-            })
-        except Exception as e:
-            log.warning(f"  Popularity error for track {track_id}: {e}")
-        time.sleep(0.3)
-
-    return popularity_data
+    url = f"https://{host}/v1/audio-features/{track_id}"
+    try:
+        response = requests.get(url, headers=get_headers(), timeout=10)
+        response.raise_for_status()
+        f = response.json()
+        if f is None:
+            return None
+        return {
+            "track_id":         f.get("id"),
+            "tempo":            f.get("tempo"),
+            "energy":           f.get("energy"),
+            "valence":          f.get("valence"),
+            "danceability":     f.get("danceability"),
+            "acousticness":     f.get("acousticness"),
+            "instrumentalness": f.get("instrumentalness"),
+            "speechiness":      f.get("speechiness"),
+            "loudness":         f.get("loudness"),
+            "mode":             f.get("mode"),
+            "time_signature":   f.get("time_signature"),
+        }
+    except Exception as e:
+        log.warning(f"  Audio features error for {track_id}: {e}")
+        return None
 
 
 # ── Group ingestion ───────────────────────────────────────────────────────────
-def ingest_group(sp, group_label, queries):
+def ingest_group(group_label, queries):
     log.info(f"\n{'='*50}")
     log.info(f"Group {group_label}")
     log.info(f"{'='*50}")
 
+    # 1. Search tracks
     all_tracks = []
+    seen_ids = set()
     for query in queries:
-        log.info(f"  Searching tracks: '{query}'")
-        tracks = search_tracks(sp, query, limit=TRACKS_PER_QUERY)
-        log.info(f"  Found {len(tracks)} tracks")
-        all_tracks.extend(tracks)
+        if len(all_tracks) >= TARGET_PER_GROUP:
+            break
+        log.info(f"  Searching: '{query}'")
+        tracks = search_tracks(query, limit=TRACKS_PER_QUERY)
+        for t in tracks:
+            if t["track_id"] not in seen_ids:
+                seen_ids.add(t["track_id"])
+                all_tracks.append(t)
+        log.info(f"  Unique so far: {len(all_tracks)}")
         time.sleep(0.3)
 
-    if not all_tracks:
-        log.warning(f"  No tracks found for group {group_label}, skipping.")
-        return pd.DataFrame()
+    tracks_df = pd.DataFrame(all_tracks)
+    log.info(f"  Total unique tracks: {len(tracks_df)}")
 
-    tracks_df = pd.DataFrame(all_tracks).drop_duplicates(subset="track_id")
-    log.info(f"  Unique tracks after dedup: {len(tracks_df)}")
-    track_ids = tracks_df["track_id"].tolist()
+    # 2. Audio features
+    log.info(f"  Fetching audio features...")
+    features = []
+    for i, track_id in enumerate(tracks_df["track_id"].tolist()):
+        if i % 50 == 0:
+            log.info(f"  Progress: {i}/{len(tracks_df)}")
+        feat = get_audio_features(track_id)
+        if feat:
+            features.append(feat)
+        time.sleep(0.3)
 
-    # Audio features
-    log.info(f"  Fetching audio features via Musicae.io...")
-    features = get_audio_features(track_ids)
-    if not features:
-        log.warning(f"  No audio features returned for group {group_label}.")
-        return pd.DataFrame()
     features_df = pd.DataFrame(features)
-
-    # Popularity
-    log.info(f"  Fetching popularity via Musicae.io...")
-    popularity = get_popularity(track_ids)
-    if not popularity:
-        log.warning(f"  No popularity returned for group {group_label}.")
-        return pd.DataFrame()
-    popularity_df = pd.DataFrame(popularity)
-
-    # Merge all
     merged = tracks_df.merge(features_df, on="track_id", how="inner")
-    merged = merged.merge(popularity_df, on="track_id", how="left")
     merged["group"] = group_label
     log.info(f"  Tracks with full data: {len(merged)}")
 
@@ -223,12 +204,10 @@ def ingest_group(sp, group_label, queries):
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    sp = get_spotify_client()
-    log.info("Spotify client initialized ✓")
 
     all_groups = []
     for group_label, queries in SEARCH_QUERIES.items():
-        df = ingest_group(sp, group_label, queries)
+        df = ingest_group(group_label, queries)
         if not df.empty:
             all_groups.append(df)
 
