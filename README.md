@@ -79,7 +79,7 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 
 **Key observations:**
 - BPM is nearly identical between groups — focus music is not faster than context music
-- Context/relax music is *more popular* than focus music — opposite of the hypothesis
+- Context/relax music is slightly more popular than focus music (31.9 vs 28.5) — but since BPM is nearly identical between groups (110 vs 112), tempo does not appear to be the driver of engagement
 - Focus tracks are highly instrumental and low energy — they differ from context tracks in many features beyond tempo
 - This suggests confounding: the groups differ not just in BPM but in multiple audio dimensions
 
