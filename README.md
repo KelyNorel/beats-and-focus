@@ -124,22 +124,26 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 ![A/B Test](figures/full_04_frequentist_ab.png)
 ![Subgroup Forest Plot](figures/full_05_subgroup_forest.png)
 
-- Mann-Whitney U: p=0.0001, rank-biserial r=0.101 (small effect)
-- Context tracks are more popular than Focus tracks — but the effect is small
+- Mann-Whitney U: p=0.0001, rank-biserial r=0.101 (small effect) — full popularity distributions
+- Chi-squared test on binary outcome (popularity ≥ 50): p=0.0012 — 14.7% Focus vs 20.3% Context reach mainstream popularity
 - **Statistical significance ≠ practical significance**: with n=2,016 we detect even tiny effects
-- Subgroup analysis splits by median BPM (108.8):
-  - High BPM tracks: p=0.41 (not significant after Bonferroni) — Focus and Context equally popular
-  - Low BPM tracks: p=4.33e-06, r=0.173 — Context significantly more popular
-- The effect is driven entirely by **slow music**, not fast music
+- Subgroup analysis by BPM: effect is driven entirely by slow tracks, not fast ones
+- High BPM tracks: p=0.41 (not significant) — Focus and Context equally popular
 - This is the opposite of what the BPM hypothesis predicts
 
-### Notebook 3 — Bayesian A/B Test
-- Beta-Binomial conjugate model on binary engagement outcome
-- Posterior distribution for P(focus > context)
-- Credible intervals for lift in popularity
+### Notebook 3 — Bayesian A/B Test ✅
+
+![Bayesian Posteriors](figures/full_06_bayesian_posteriors.png)
+
+- Beta-Binomial conjugate model, uniform prior Beta(1,1)
+- Binary outcome: popularity ≥ 50 (same as frequentist chi-squared — enables direct comparison)
+- P(Context > Focus) = 0.9998 — 99.98% probability Context tracks score higher on popularity
+- Median lift: +38.1% (95% CI: [14.3%, 68.4%])
+- Posterior distributions completely separated — consistent with chi-squared p=0.0012
+- Wide credible interval reflects uncertainty in magnitude, not direction
 
 ### Notebook 4 — Predictive Modeling
-- Binary outcome: does a track exceed median popularity threshold?
+- Binary outcome: does a track exceed popularity ≥ 50?
 - Models: Logistic Regression, Random Forest, Gradient Boosting
 - SHAP analysis: where does `tempo` rank among all audio features?
 - Key question: after controlling for energy, instrumentalness, and speechiness —
@@ -147,13 +151,14 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 
 ## The Twist
 
-Focus tracks are not faster than context tracks. BPM explains less than 1% of
-popularity variance. The frequentist test finds a statistically significant difference
-between groups — but it is small (r=0.101) and concentrated in slow tracks, not fast ones.
+Both frequentist and Bayesian analyses agree: Context music scores higher on Spotify's
+popularity proxy. But this is not driven by BPM — Focus and Context tracks have
+nearly identical tempo distributions. The driver is likely other audio features
+like energy and instrumentalness, which differ substantially between groups.
 
 With observational track data, we cannot answer whether BPM drives focus. What we
 can show is that focus music doesn't meaningfully differ from context music in tempo,
-and that the small popularity gap between groups is not driven by BPM at all.
+and that the popularity gap between groups is not driven by BPM at all.
 
 **The lesson mirrors a parallel project on clinical trial enrollment nudges:**
 observational data can make an intervention look meaningful until you account for
@@ -181,7 +186,7 @@ beats-and-focus/
 ├── notebooks/
 │   ├── 01_eda.ipynb          ✅
 │   ├── 02_frequentist.ipynb  ✅
-│   ├── 03_bayesian.ipynb
+│   ├── 03_bayesian.ipynb     ✅
 │   └── 04_predictive.ipynb
 ├── figures/
 │   ├── pilot_01_*.png        # pilot figures (n=204, A/B/C)
@@ -222,4 +227,4 @@ python src/ingest.py
 **Author:** Raquel (Kely) Norel, PhD  
 **Domain:** Behavioral Data Science / A/B Testing / Music & Productivity  
 **Companion project:** [clinical-trial-nudges](https://github.com/KelyNorel/clinical-trial-nudges) — same methods, higher stakes  
-**Status:** 🚧 In progress — Notebooks 1-2 complete, Notebooks 3-4 pending
+**Status:** 🚧 In progress — Notebooks 1-3 complete, Notebook 4 pending
