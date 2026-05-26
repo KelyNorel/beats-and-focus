@@ -119,11 +119,19 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 - BPM explains <1% of popularity variance within each group
 - Power analysis: d=0.175, current power=0.967 with full sample
 
-### Notebook 2 — Frequentist A/B Test
-- Mann-Whitney U test: does popularity differ significantly between A and B?
-- Effect size (rank-biserial r) for practical significance
-- Subgroup analysis by audio feature clusters
-- Multiple testing correction (Bonferroni)
+### Notebook 2 — Frequentist A/B Test ✅
+
+![A/B Test](figures/full_04_frequentist_ab.png)
+![Subgroup Forest Plot](figures/full_05_subgroup_forest.png)
+
+- Mann-Whitney U: p=0.0001, rank-biserial r=0.101 (small effect)
+- Context tracks are more popular than Focus tracks — but the effect is small
+- **Statistical significance ≠ practical significance**: with n=2,016 we detect even tiny effects
+- Subgroup analysis splits by median BPM (108.8):
+  - High BPM tracks: p=0.41 (not significant after Bonferroni) — Focus and Context equally popular
+  - Low BPM tracks: p=4.33e-06, r=0.173 — Context significantly more popular
+- The effect is driven entirely by **slow music**, not fast music
+- This is the opposite of what the BPM hypothesis predicts
 
 ### Notebook 3 — Bayesian A/B Test
 - Beta-Binomial conjugate model on binary engagement outcome
@@ -140,13 +148,12 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 ## The Twist
 
 Focus tracks are not faster than context tracks. BPM explains less than 1% of
-popularity variance. And the groups that do differ — in energy, instrumentalness,
-and speechiness — point to confounding, not causation.
+popularity variance. The frequentist test finds a statistically significant difference
+between groups — but it is small (r=0.101) and concentrated in slow tracks, not fast ones.
 
 With observational track data, we cannot answer whether BPM drives focus. What we
 can show is that focus music doesn't meaningfully differ from context music in tempo,
-and that both have similar popularity. The data doesn't support the hypothesis —
-but observational data alone cannot definitively reject it either.
+and that the small popularity gap between groups is not driven by BPM at all.
 
 **The lesson mirrors a parallel project on clinical trial enrollment nudges:**
 observational data can make an intervention look meaningful until you account for
@@ -173,7 +180,7 @@ beats-and-focus/
 │   └── processed/    # cleaned dataset (not tracked in git)
 ├── notebooks/
 │   ├── 01_eda.ipynb          ✅
-│   ├── 02_frequentist.ipynb
+│   ├── 02_frequentist.ipynb  ✅
 │   ├── 03_bayesian.ipynb
 │   └── 04_predictive.ipynb
 ├── figures/
@@ -215,4 +222,4 @@ python src/ingest.py
 **Author:** Raquel (Kely) Norel, PhD  
 **Domain:** Behavioral Data Science / A/B Testing / Music & Productivity  
 **Companion project:** [clinical-trial-nudges](https://github.com/KelyNorel/clinical-trial-nudges) — same methods, higher stakes  
-**Status:** 🚧 In progress — Notebook 1 complete, Notebooks 2-4 pending
+**Status:** 🚧 In progress — Notebooks 1-2 complete, Notebooks 3-4 pending
