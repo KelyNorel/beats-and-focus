@@ -1,102 +1,240 @@
-# FHIR Resource Retrieval System
-### A multi-strategy approach to clinical question answering
+# Do Music Tempo and Focus Playlists Affect Listening Engagement?
+### A/B Testing with Bayesian Analysis on Spotify/Musicae.io Data
 
-**Benchmarked against FHIR-AgentBench** (2,931 real-world clinical questions) on the MIMIC-IV FHIR Demo dataset (928,935 resources, 100 patients).
+Rigorous A/B testing framework applied to 2,016 tracks,
+investigating whether "focus" tracks — associated with deep work, concentration,
+and ADHD music — drive greater listening engagement than contextual relax/chill tracks,
+as measured by Spotify popularity score.
 
----
+Combines frequentist and Bayesian methods to answer a deceptively simple question:
+**does high-tempo music actually keep you working longer, or are you just the kind
+of person who seeks it out?**
 
-## The Problem
+## Research Question
 
-Retrieve relevant FHIR resources from 928K records in response to natural language clinical questions — evaluated against ground truth FHIR resource IDs.
+Productivity culture recommends high-BPM music for focus and deep work. But does
+tempo itself drive engagement — or is it a confound? People who build focused work
+habits may self-select into focus playlists regardless of BPM. This project tests
+whether focus music predicts engagement at scale using observational data.
 
----
+### A note on observational data
 
-## Strategies Implemented
+The ideal experiment would track individual users — measuring how long they stayed
+focused while listening to high-BPM vs low-BPM music. That data is not publicly
+available. What we have instead is track-level metadata: audio features and popularity
+scores. Popularity is used as a proxy for engagement (more popular = more people
+choose to listen), but it cannot tell us whether listeners stayed focused or worked
+longer. This is the fundamental limitation of the study, and mirrors the challenge
+in the companion clinical trials project: observational data can suggest associations
+but cannot establish causation.
 
-| Strategy | Description |
-|---|---|
-| **BM25** | Keyword search with query expansion |
-| **Vector Search** | Semantic search with OpenAI embeddings + ChromaDB |
-| **Hybrid** | Rank-based combination of BM25 + vector |
-| **Router** | Query-type based strategy selection |
-| **Patient-Filtered** ⭐ | Two-stage retrieval: filter by patient UUID, then vector search within ~9K resources |
-| **Query Decomposition** | LLM extracts FHIR-specific search terms from complex clinical questions |
+## Dataset
 
-BM25 and Vector Search are standard techniques; **Hybrid, Router, Patient-Filtered, and Query Decomposition are original contributions**.
+**Source:** Musicae.io via RapidAPI (search + audio features + popularity)  
+**Group A — Focus** (treatment, n=947): tracks matching queries like "ADHD focus music", "deep work music", "concentration beats"  
+**Group B — Context** (control, n=1,069): tracks matching queries like "chill relax music", "coffee shop background music", "mellow instrumental"  
+**Audio features:** `tempo` (BPM), `energy`, `valence`, `danceability`, `acousticness`, `instrumentalness`, `speechiness`, `loudness`  
+**Outcome:** track `popularity` (Spotify's 0-100 engagement score)  
+**Total tracks:** 2,016 (after removing 5 with invalid tempo=0)  
+No audio files downloaded — metadata only. No personal user data involved.
 
----
+## Data Pipeline
 
-## Key Results
+### Why Musicae.io?
 
-| Strategy | Recall | Precision | Macro F1 | p50 Latency |
-|---|---|---|---|---|
-| BM25 | 0.142 | 0.007 | 0.013 | 853ms |
-| Vector | 0.219 | 0.013 | 0.022 | 329ms |
-| Hybrid | 0.291 | 0.013 | 0.025 | 1349ms |
-| Router | 0.289 | 0.012 | 0.023 | 574ms |
-| Decomposed | 0.273 | 0.015 | 0.028 | 2347ms |
-| **Patient-Filtered** | **0.434** | **0.015** | **0.029** | **513ms** |
-| **Patient-Filtered (best, n=1200)** | **0.821** | 0.008 | 0.015 | 1083ms |
-| *Paper SOTA (agentic)* | *0.810* | — | — | — |
+Spotify deprecated its `/v1/audio-features` endpoint in November 2024 and restricted
+playlist access and popularity data for new developer apps in February 2026.
+Musicae.io is an independent API that replicates Spotify's deprecated endpoints
+(audio features, track metadata, popularity) using Spotify track IDs.
 
-**Our best system (recall 0.821) matches paper SOTA (0.810) using pure retrieval — no LLM in the retrieval loop.**
+The final pipeline uses **Musicae.io exclusively** for search, audio features, and popularity.
+No Spotify API calls are needed.
 
----
+### Design Decisions
 
-## Key Design Decisions
+**Why A/B instead of A/B/C?**
+The original design included a third group (C — General) using queries like "top hits 2025".
+EDA on the pilot data revealed that this group was poorly defined: the search queries
+did not return reliably more popular tracks, making the group label misleading.
+The effect size between C and other groups was negligible (d<0.08), so C was dropped.
 
-- **Patient-level pre-filtering** — reduces search space from 928K → ~9K resources (100x), best recall overall
-- **Query expansion** — maps clinical patient IDs to FHIR UUIDs, improves recall across all strategies
-- **Smarter text representation** — field selection and truncation tuned by failure analysis
-- **Failure-driven iteration** — per-template analysis revealed missing fields and guided improvements
+Dropping a group mid-study is a real methodological decision that requires justification.
+Here it is defensible because: (1) the group definition was ambiguous from the start,
+(2) the pilot showed negligible effect vs other groups, and (3) keeping it would have
+required ~21,000 tracks per group to achieve 80% power — impractical given API limits.
 
----
+**Why these two groups?**
+A vs B is the most meaningful comparison: both groups represent contextual listening
+(music chosen for a specific activity), but only A has explicit focus/work intent.
+This isolates the focus intent effect while controlling for "background listening" behavior.
+
+### Pilot Study & Sequential Design
+
+Rather than assuming an effect size upfront, we followed a sequential design:
+
+1. **Pilot** — collected ~70 tracks per group, computed Cohen's d on popularity
+2. **Power analysis** — used observed d to calculate required sample size
+3. **Scale up** — collected full sample based on power requirements
+
+| Phase | n per group | Cohen's d | Power |
+|-------|-------------|-----------|-------|
+| Pilot (A/B/C) | ~68 | 0.114 | ~0.30 |
+| Full sample (A/B) | 947 / 1,069 | 0.175 | **0.967** |
+
+The pilot underestimated the true effect size — a known limitation of small pilots.
+With the full dataset we have 96.7% statistical power, well above the 0.80 minimum.
+
+## Preliminary EDA Findings
+
+| | A — Focus | B — Context |
+|---|---|---|
+| Mean BPM | 112.2 | 110.3 |
+| Mean popularity | 28.5 | 31.9 |
+| Mean energy | 0.264 | 0.434 |
+| Mean instrumentalness | 0.588 | 0.360 |
+
+**Key observations:**
+- BPM is nearly identical between groups — focus music is not faster than context music
+- Context/relax music is slightly more popular than focus music (31.9 vs 28.5) — but since BPM is nearly identical between groups, tempo does not appear to be the driver
+- Within each group, BPM explains less than 1% of the variance in popularity (r=0.07 for Focus, r=-0.01 for Context)
+- Focus tracks are highly instrumental and low energy — they differ from context tracks in many features beyond tempo
+- This suggests confounding: the groups differ not just in BPM but in multiple audio dimensions simultaneously
+
+## Analyses
+
+### Notebook 1 — EDA & Power Analysis ✅
+
+**Pilot figures (n=204, A/B/C):**
+![Pilot Popularity Distribution](figures/pilot_01_popularity_distribution.png)
+![Pilot BPM Distribution](figures/pilot_02_bpm_distribution.png)
+![Pilot BPM vs Popularity](figures/pilot_03_bpm_vs_popularity.png)
+
+**Full sample figures (n=2,016, A/B):**
+![Popularity Distribution](figures/full_01_popularity_distribution.png)
+![BPM Distribution](figures/full_02_bpm_distribution.png)
+![BPM vs Popularity](figures/full_03_bpm_vs_popularity.png)
+
+- Popularity distributions similar across groups — Context slightly higher
+- BPM nearly identical between Focus and Context tracks
+- BPM explains <1% of popularity variance within each group
+- Power analysis: d=0.175, current power=0.967 with full sample
+
+### Notebook 2 — Frequentist A/B Test ✅
+
+![A/B Test](figures/full_04_frequentist_ab.png)
+![Subgroup Forest Plot](figures/full_05_subgroup_forest.png)
+
+- Mann-Whitney U: p=0.0001, rank-biserial r=0.101 (small effect) — full popularity distributions
+- Chi-squared test on binary outcome (popularity ≥ 50): p=0.0012 — 14.7% Focus vs 20.3% Context reach mainstream popularity
+- **Statistical significance ≠ practical significance**: with n=2,016 we detect even tiny effects
+- Subgroup analysis by BPM: effect is driven entirely by slow tracks, not fast ones
+- High BPM tracks: p=0.41 (not significant) — Focus and Context equally popular
+- This is the opposite of what the BPM hypothesis predicts
+
+### Notebook 3 — Bayesian A/B Test ✅
+
+![Bayesian Posteriors](figures/full_06_bayesian_posteriors.png)
+
+- Beta-Binomial conjugate model, uniform prior Beta(1,1)
+- Binary outcome: popularity ≥ 50 (same as frequentist chi-squared — enables direct comparison)
+- P(Context > Focus) = 0.9998 — 99.98% probability Context tracks score higher on popularity proxy
+- Median lift: +38.1% (95% CI: [14.3%, 68.4%])
+- Posterior distributions completely separated — consistent with chi-squared p=0.0012
+- Wide credible interval reflects uncertainty in magnitude, not direction
+
+### Notebook 4 — Predictive Modeling ✅
+
+![ROC Curves](figures/full_07_roc_curves.png)
+![SHAP Importance](figures/full_08_shap_importance.png)
+![SHAP Beeswarm](figures/full_09_shap_beeswarm.png)
+
+- Binary outcome: popularity ≥ 50 (17.7% success rate)
+- Three models evaluated via 5-fold cross-validation:
+  - Logistic Regression: AUC=0.613
+  - Random Forest: AUC=0.687 (best — used for SHAP)
+  - Gradient Boosting: AUC=0.658
+- **`tempo` ranks 5th out of 8 features in SHAP importance**
+- Top predictors: instrumentalness (#1), loudness (#2), energy (#3), danceability (#4)
+- Direction (beeswarm): high instrumentalness → less popular; high loudness/energy → more popular
+- Focus tracks have high instrumentalness (0.588) and low energy (0.264) — these features, not BPM, explain the popularity gap
+
+## The Twist
+
+All four analyses converge on the same conclusion: the popularity gap between Focus
+and Context tracks is real but small, and it is **not driven by BPM**. After
+controlling for instrumentalness, loudness, and energy — tempo ranks 5th out of 8
+features with no clear directional effect.
+
+Focus music is less popular because it is more instrumental and lower energy —
+not because it is slower. The groups were never comparable on these dimensions,
+which is the classic observational data problem: you cannot isolate one variable
+when treatment and control differ on many dimensions simultaneously.
+
+**The lesson mirrors a parallel project on clinical trial enrollment nudges:**
+observational data can make an intervention look meaningful until you account for
+what else differs between treatment and control groups.
+
+> Correlation ≠ causation — whether you're running clinical trials or building a
+> focus playlist.
+
+## Stack
+
+- **Python, pandas** — data ingestion and processing
+- **requests** — Musicae.io API calls via RapidAPI
+- **scipy, statsmodels** — frequentist hypothesis testing, power analysis
+- **scikit-learn, SHAP** — predictive modeling
+- **Matplotlib, seaborn** — visualizations
+- **JupyterLab** — documented analysis notebooks
 
 ## Project Structure
 
 ```
-src/
-├── config.py               # Configuration
-├── data_loader.py          # NDJSON parsing, FHIR-to-text flattening
-├── store.py                # SQLite key-value store for raw FHIR JSON
-├── evaluation.py           # Recall, precision, F1 against ground truth
-├── search.py               # Base search strategies
-├── search_hybrid.py        # Hybrid BM25 + vector
-├── search_router.py        # Query-type router
-├── search_decomposed.py    # LLM query decomposition
-├── search_patient_filtered.py  # Two-stage patient-filtered retrieval
-├── search_dynamic.py       # Dynamic n_results
-└── search_CH.py            # Experimental strategies
-app.py                      # Streamlit UI
-evaluate_all.py             # Full evaluation runner
-scripts/setup_data.sh       # Downloads MIMIC-IV FHIR + ground truth
+beats-and-focus/
+├── data/
+│   ├── raw/          # track metadata + audio features (not tracked in git)
+│   └── processed/    # cleaned dataset (not tracked in git)
+├── notebooks/
+│   ├── 01_eda.ipynb          ✅
+│   ├── 02_frequentist.ipynb  ✅
+│   ├── 03_bayesian.ipynb     ✅
+│   └── 04_predictive.ipynb   ✅
+├── figures/
+│   ├── pilot_01_*.png        # pilot figures (n=204, A/B/C)
+│   └── full_0*.png           # full sample figures (n=2,016, A/B)
+├── src/
+│   └── ingest.py             # Musicae.io ingestion pipeline
+├── .env                      # API credentials (not tracked)
+├── requirements.txt
+├── .gitignore
+└── README.md
 ```
-
----
-
-## Data
-
-This project uses publicly available datasets:
-- **MIMIC-IV FHIR Demo** — [PhysioNet](https://physionet.org/content/mimic-iv-fhir-demo/2.0/)
-- **FHIR-AgentBench** — [arXiv:2509.19319](https://arxiv.org/abs/2509.19319) · [GitHub](https://github.com/fhir-agentbench/fhir-agentbench)
-
-Data files are not included in this repo. Run `scripts/setup_data.sh` to download and set up.
-
----
 
 ## Setup
 
 ```bash
+git clone https://github.com/KelyNorel/beats-and-focus.git
+cd beats-and-focus
+pyenv virtualenv 3.11 beats-and-focus
+pyenv activate beats-and-focus
 pip install -r requirements.txt
-cp .env.example .env  # add your OpenAI API key
-bash scripts/setup_data.sh
-python evaluate_all.py
+```
+
+Add your API credentials to `.env`:
+
+```
+RAPIDAPI_KEY=your_rapidapi_key
+RAPIDAPI_HOST=spotify-extended-audio-features-api.p.rapidapi.com
+```
+
+Then run the ingestion pipeline:
+
+```bash
+python src/ingest.py
 ```
 
 ---
 
-## References
-
-- Lee et al., 2025. *FHIR-AgentBench*. arXiv:2509.19319
-- MIMIC-IV FHIR Demo — PhysioNet
-- HL7 FHIR R4 — hl7.org/fhir
+**Author:** Raquel (Kely) Norel, PhD  
+**Domain:** Behavioral Data Science / A/B Testing / Music & Productivity  
+**Companion project:** [clinical-trial-nudges](https://github.com/KelyNorel/clinical-trial-nudges) — same methods, higher stakes  
+**Status:** ✅ Complete — all 4 notebooks finished
