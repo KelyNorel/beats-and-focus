@@ -30,3 +30,5 @@ data/processed/
 
 #other
 go_venv.txt
+.cache
+notebooks/.cache
