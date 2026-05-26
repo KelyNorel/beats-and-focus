@@ -17,6 +17,17 @@ tempo itself drive engagement — or is it a confound? People who build focused 
 habits may self-select into focus playlists regardless of BPM. This project tests
 whether focus music predicts engagement at scale using observational data.
 
+### A note on observational data
+
+The ideal experiment would track individual users — measuring how long they stayed
+focused while listening to high-BPM vs low-BPM music. That data is not publicly
+available. What we have instead is track-level metadata: audio features and popularity
+scores. Popularity is used as a proxy for engagement (more popular = more people
+choose to listen), but it cannot tell us whether listeners stayed focused or worked
+longer. This is the fundamental limitation of the study, and mirrors the challenge
+in the companion clinical trials project: observational data can suggest associations
+but cannot establish causation.
+
 ## Dataset
 
 **Source:** Musicae.io via RapidAPI (search + audio features + popularity)  
@@ -47,6 +58,11 @@ EDA on the pilot data revealed that this group was poorly defined: the search qu
 did not return reliably more popular tracks, making the group label misleading.
 The effect size between C and other groups was negligible (d<0.08), so C was dropped.
 
+Dropping a group mid-study is a real methodological decision that requires justification.
+Here it is defensible because: (1) the group definition was ambiguous from the start,
+(2) the pilot showed negligible effect vs other groups, and (3) keeping it would have
+required ~21,000 tracks per group to achieve 80% power — impractical given API limits.
+
 **Why these two groups?**
 A vs B is the most meaningful comparison: both groups represent contextual listening
 (music chosen for a specific activity), but only A has explicit focus/work intent.
@@ -62,8 +78,8 @@ Rather than assuming an effect size upfront, we followed a sequential design:
 
 | Phase | n per group | Cohen's d | Power |
 |-------|-------------|-----------|-------|
-| Pilot | ~68 | 0.114 | ~0.30 |
-| Full sample | 947 / 1,069 | 0.175 | **0.967** |
+| Pilot (A/B/C) | ~68 | 0.114 | ~0.30 |
+| Full sample (A/B) | 947 / 1,069 | 0.175 | **0.967** |
 
 The pilot underestimated the true effect size — a known limitation of small pilots.
 With the full dataset we have 96.7% statistical power, well above the 0.80 minimum.
@@ -79,20 +95,28 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 
 **Key observations:**
 - BPM is nearly identical between groups — focus music is not faster than context music
-- Context/relax music is slightly more popular than focus music (31.9 vs 28.5) — but since BPM is nearly identical between groups (110 vs 112), tempo does not appear to be the driver of engagement
+- Context/relax music is slightly more popular than focus music (31.9 vs 28.5) — but since BPM is nearly identical between groups, tempo does not appear to be the driver
+- Within each group, BPM explains less than 1% of the variance in popularity (r=0.07 for Focus, r=-0.01 for Context)
 - Focus tracks are highly instrumental and low energy — they differ from context tracks in many features beyond tempo
-- This suggests confounding: the groups differ not just in BPM but in multiple audio dimensions
+- This suggests confounding: the groups differ not just in BPM but in multiple audio dimensions simultaneously
 
 ## Analyses
 
 ### Notebook 1 — EDA & Power Analysis ✅
-![Popularity Distribution](figures/01_popularity_distribution.png)
-![BPM Distribution](figures/02_bpm_distribution.png)
-![BPM vs Popularity](figures/03_bpm_vs_popularity.png)
 
-- Popularity distributions nearly identical across groups
-- BPM does not differ meaningfully between focus and context tracks
-- No significant correlation between BPM and popularity within any group
+**Pilot figures (n=204, A/B/C):**
+![Pilot Popularity Distribution](figures/pilot_01_popularity_distribution.png)
+![Pilot BPM Distribution](figures/pilot_02_bpm_distribution.png)
+![Pilot BPM vs Popularity](figures/pilot_03_bpm_vs_popularity.png)
+
+**Full sample figures (n=2,016, A/B):**
+![Popularity Distribution](figures/full_01_popularity_distribution.png)
+![BPM Distribution](figures/full_02_bpm_distribution.png)
+![BPM vs Popularity](figures/full_03_bpm_vs_popularity.png)
+
+- Popularity distributions similar across groups — Context slightly higher
+- BPM nearly identical between Focus and Context tracks
+- BPM explains <1% of popularity variance within each group
 - Power analysis: d=0.175, current power=0.967 with full sample
 
 ### Notebook 2 — Frequentist A/B Test
@@ -115,10 +139,14 @@ With the full dataset we have 96.7% statistical power, well above the 0.80 minim
 
 ## The Twist
 
-Focus tracks are not faster than context tracks. And context/relax music is
-more popular than focus music. When predictive modeling controls for energy,
-instrumentalness, and other audio features, the independent contribution of BPM
-is expected to be minimal.
+Focus tracks are not faster than context tracks. BPM explains less than 1% of
+popularity variance. And the groups that do differ — in energy, instrumentalness,
+and speechiness — point to confounding, not causation.
+
+With observational track data, we cannot answer whether BPM drives focus. What we
+can show is that focus music doesn't meaningfully differ from context music in tempo,
+and that both have similar popularity. The data doesn't support the hypothesis —
+but observational data alone cannot definitively reject it either.
 
 **The lesson mirrors a parallel project on clinical trial enrollment nudges:**
 observational data can make an intervention look meaningful until you account for
@@ -148,10 +176,12 @@ beats-and-focus/
 │   ├── 02_frequentist.ipynb
 │   ├── 03_bayesian.ipynb
 │   └── 04_predictive.ipynb
-├── figures/          # saved plots
+├── figures/
+│   ├── pilot_01_*.png        # pilot figures (n=204, A/B/C)
+│   └── full_0*.png           # full sample figures (n=2,016, A/B)
 ├── src/
-│   └── ingest.py     # Musicae.io ingestion pipeline
-├── .env              # API credentials (not tracked)
+│   └── ingest.py             # Musicae.io ingestion pipeline
+├── .env                      # API credentials (not tracked)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
